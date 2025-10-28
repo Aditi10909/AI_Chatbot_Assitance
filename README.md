@@ -86,11 +86,11 @@ flowchart TD
   %% Pipeline (vertical)
   subgraph PIPE["Processing Pipeline"]
     direction TB
-    B --> C["Data Loader\n(extract text, tables)"]
-    C --> D["Embedder\n(generate embeddings)"]
-    D --> E["VectorStore\n(FAISS)"]
-    E --> F["RAGSearch\n(retrieve + LLM)"]
-    F --> G["Report Generation\n(assemble sections)"]
+    B --> C["Data Loader(extract text, tables)"]
+    C --> D["Embedder(generate embeddings)"]
+    D --> E["VectorStore(FAISS)"]
+    E --> F["RAGSearch(retrieve + LLM)"]
+    F --> G["Report Generation(assemble sections)"]
   end
 
   G --> H["Generated Report\n(PDF)"]
@@ -106,4 +106,5 @@ flowchart TD
   class F retrieve;
   class G,H report;
   class A,B user;
+
 
