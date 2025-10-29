@@ -1,6 +1,14 @@
 import io
 from typing import List, Dict, Tuple
 import os
+from logger import logging
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+import textwrap
+
+logger = logging.getLogger(__name__)
 
 
 # Optional imports (try to import, else fallback)
@@ -215,38 +223,73 @@ def collect_sections_from_data(data_dir: str, requested_sections: List[str]) -> 
             continue
     return collected
 
-def build_pdf_in_memory(sections_text: Dict[str, str], font_path: str = "./fonts/DejaVuSans.ttf") -> bytes:
-    if not os.path.exists(font_path):
-        raise RuntimeError(f"Font file not found at {font_path}. Download DejaVuSans.ttf and place it there.")
-    pdf = FPDF()
-    # Register TTF for unicode
-    pdf.add_page()
-    pdf.add_font("DejaVu", "", font_path, uni=True)
-    pdf.set_font("DejaVu", size=12)
 
-    # Recreate pages properly
+def build_pdf_in_memory(sections_text: dict) -> bytes:
+    """
+    Robust ReportLab builder: ensures all titles/bodies are strings,
+    avoids string+int concat errors, and logs any problematic entries.
+    """
+    # sanitize input into ordered list of (title, body) both as strings
+    sanitized = []
+    for k, v in (sections_text or {}).items():
+        try:
+            title = str(k) if k is not None else "(Untitled Section)"
+        except Exception as e:
+            logger.exception("Failed to stringify section title: %s", k)
+            title = "(Untitled Section)"
+        try:
+            body_text = "" if v is None else str(v)
+        except Exception as e:
+            logger.exception("Failed to stringify body for section %s: %s", title, e)
+            body_text = ""
+        sanitized.append((title, body_text))
+
     buf = io.BytesIO()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    # Remove the dummy page added earlier
-    pdf.pages = []
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            rightMargin=20*mm, leftMargin=20*mm,
+                            topMargin=20*mm, bottomMargin=20*mm)
 
-    for title, body in sections_text.items():
-        pdf.add_page()
-        pdf.set_font("DejaVu", style="B", size=16)
-        pdf.cell(0, 10, txt=title, ln=True)
-        pdf.ln(4)
-        pdf.set_font("DejaVu", size=12)
-        if not body:
-            pdf.multi_cell(0, 8, "(No content found for this section)")
+    styles = getSampleStyleSheet()
+    heading_style = ParagraphStyle(
+        "Heading",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=16,
+        spaceAfter=6,
+    )
+    body_style = ParagraphStyle(
+        "Body",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=11,
+        leading=14
+    )
+
+    story = []
+    for idx, (title, body) in enumerate(sanitized):
+        story.append(Paragraph(title, heading_style))
+        story.append(Spacer(1, 4))
+
+        if not body.strip():
+            story.append(Paragraph("(No content found for this section)", body_style))
+            story.append(Spacer(1, 8))
         else:
-            # split into paragraphs
-            for paragraph in body.split("\n\n"):
-                paragraph = paragraph.strip()
-                if paragraph:
-                    # ensure no very long single-line strings
-                    # FPDF2 handles UTF-8 when font registered with uni=True
-                    pdf.multi_cell(0, 8, paragraph)
-                    pdf.ln(2)
-    pdf.output(buf)
+            # Normalize and split into paragraphs
+            paragraphs = [p.strip() for p in body.replace("\r\n", "\n").split("\n\n") if p.strip()]
+            for p in paragraphs:
+                try:
+                    p_wrapped = "\n".join(textwrap.wrap(str(p), 100))
+                    story.append(Paragraph(p_wrapped.replace("\n", "<br/>"), body_style))
+                    story.append(Spacer(1, 6))
+                except Exception:
+                    # fallback to safe insertion
+                    logger.exception("Paragraph render failed for section '%s'. Inserting raw text.", title)
+                    story.append(Paragraph(str(p), body_style))
+                    story.append(Spacer(1, 6))
+
+        if idx != len(sanitized) - 1:
+            story.append(PageBreak())
+
+    doc.build(story)
     buf.seek(0)
     return buf.read()

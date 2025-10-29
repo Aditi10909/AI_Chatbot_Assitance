@@ -20,3 +20,5 @@ python-multipart
 fpdf
 docx
 typing
+logger
+reportlab
